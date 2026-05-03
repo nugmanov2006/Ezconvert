@@ -1,6 +1,5 @@
 import asyncio
 import os
-import threading
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
@@ -15,19 +14,13 @@ from middlewares.throttling import ThrottlingMiddleware
 from middlewares.whitelist import WhitelistMiddleware
 from middlewares.check_subscription import SubscriptionMiddleware
 
-# ========== НАСТРОЙКА СЕССИИ (БЕЗ ПРОКСИ) ==========
+# ---------- Бот ----------
 session = AiohttpSession(timeout=60)
-
-bot = Bot(
-    token=BOT_TOKEN,
-    session=session,
-    default=DefaultBotProperties()
-)
-
+bot = Bot(token=BOT_TOKEN, session=session, default=DefaultBotProperties())
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# ========== ПОДКЛЮЧЕНИЕ MIDDLEWARE ==========
+# Middleware
 if RATE_LIMIT and RATE_LIMIT > 0:
     dp.message.middleware(ThrottlingMiddleware(rate_limit=RATE_LIMIT))
     dp.callback_query.middleware(ThrottlingMiddleware(rate_limit=RATE_LIMIT))
@@ -41,7 +34,7 @@ if ONLY_ALLOWED_USERS and ALLOWED_USERS:
 dp.message.middleware(SubscriptionMiddleware())
 dp.callback_query.middleware(SubscriptionMiddleware())
 
-# ========== ПОДКЛЮЧЕНИЕ РОУТЕРОВ ==========
+# Роутеры
 dp.include_router(start.router)
 dp.include_router(audio.router)
 dp.include_router(settings.router)
@@ -49,27 +42,28 @@ dp.include_router(video.router)
 dp.include_router(admin.router)
 dp.include_router(download.router)
 
-# ========== ВЕБ-СЕРВЕР ДЛЯ HEALTH CHECK (RENDER) ==========
-app = web.Application()
-
-async def health(request):
+# ---------- Веб‑сервер для health‑чека (без потоков!) ----------
+async def health_check(request):
     return web.Response(text="OK")
 
-app.router.add_get("/", health)
-app.router.add_get("/health", health)
-
-def run_web():
+async def run_web():
     port = int(os.environ.get("PORT", 8080))
-    web.run_app(app, host="0.0.0.0", port=port)
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    app.router.add_get("/health", health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌐 Health check сервер запущен на порту {port}")
 
-# ========== ОСНОВНЫЕ ФУНКЦИИ ==========
+# ---------- Команды, очистка, запуск ----------
 async def set_commands():
-    commands = [
+    await bot.set_my_commands([
         BotCommand(command="start", description="🚀 Запустить бота"),
         BotCommand(command="admin", description="👑 Админ панель"),
         BotCommand(command="cancel", description="❌ Отменить действие"),
-    ]
-    await bot.set_my_commands(commands)
+    ])
 
 async def cleanup_old_videos():
     while True:
@@ -84,17 +78,14 @@ async def cleanup_old_videos():
                         print(f"🗑️ Удалён старый файл: {file_path}")
                     await db.mark_video_deleted(str(video["_id"]))
                 except Exception as e:
-                    print(f"Ошибка при удалении видео {video.get('_id')}: {e}")
+                    print(f"Ошибка при удалении {video.get('_id')}: {e}")
         except Exception as e:
             print(f"Ошибка в cleanup_old_videos: {e}")
 
 async def main():
     print("🤖 Бот запускается...")
-    # Запускаем веб-сервер health check в отдельном потоке
-    threading.Thread(target=run_web, daemon=True).start()
-    # Устанавливаем команды бота
+    asyncio.create_task(run_web())          # веб‑сервер в фоне
     await set_commands()
-    # Запускаем фоновую очистку
     asyncio.create_task(cleanup_old_videos())
     print("✅ Бот готов к работе!")
     await dp.start_polling(bot, skip_updates=True)
