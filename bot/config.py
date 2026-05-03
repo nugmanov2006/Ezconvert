@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+MONGO_URL = os.getenv("MONGO_URL")
+
 # ========== ЗАЩИТА ==========
 RATE_LIMIT = 1.0
 ALLOWED_USERS = [123456789]          # Замените на ваш ID, если нужен белый список
