@@ -42,11 +42,11 @@ dp.include_router(video.router)
 dp.include_router(admin.router)
 dp.include_router(download.router)
 
-# ---------- Веб‑сервер для health‑чека (без потоков!) ----------
+# ---------- Веб‑сервер (health check) ----------
 async def health_check(request):
     return web.Response(text="OK")
 
-async def run_web():
+async def start_web():
     port = int(os.environ.get("PORT", 8080))
     app = web.Application()
     app.router.add_get("/", health_check)
@@ -56,8 +56,10 @@ async def run_web():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"🌐 Health check сервер запущен на порту {port}")
+    # держим сервер бесконечно
+    await asyncio.Event().wait()
 
-# ---------- Команды, очистка, запуск ----------
+# ---------- Фоновые задачи ----------
 async def set_commands():
     await bot.set_my_commands([
         BotCommand(command="start", description="🚀 Запустить бота"),
@@ -77,18 +79,24 @@ async def cleanup_old_videos():
                         os.remove(file_path)
                         print(f"🗑️ Удалён старый файл: {file_path}")
                     await db.mark_video_deleted(str(video["_id"]))
-                except Exception as e:
-                    print(f"Ошибка при удалении {video.get('_id')}: {e}")
-        except Exception as e:
-            print(f"Ошибка в cleanup_old_videos: {e}")
+                except:
+                    pass
+        except:
+            pass
 
-async def main():
-    print("🤖 Бот запускается...")
-    asyncio.create_task(run_web())          # веб‑сервер в фоне
+async def start_bot():
     await set_commands()
     asyncio.create_task(cleanup_old_videos())
     print("✅ Бот готов к работе!")
     await dp.start_polling(bot, skip_updates=True)
+
+async def main():
+    print("🤖 Бот запускается...")
+    # Запускаем веб-сервер и бота параллельно
+    await asyncio.gather(
+        start_web(),
+        start_bot()
+    )
 
 if __name__ == "__main__":
     try:

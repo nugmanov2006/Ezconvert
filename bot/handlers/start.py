@@ -15,7 +15,7 @@ async def cmd_start(message: types.Message, state: FSMContext, bot):
     user = message.from_user
     await state.clear()
 
-    # Добавляем пользователя в БД (асинхронно)
+    # Добавляем пользователя (убраны лишние await)
     await db.add_user(
         user_id=user.id,
         username=user.username,
@@ -35,43 +35,33 @@ async def cmd_start(message: types.Message, state: FSMContext, bot):
     is_subscribed = await check_subscription(bot, user.id)
 
     if not is_subscribed:
-        # Показываем клавиатуру с кнопкой проверки
         await message.answer(
             get_text(lang, 'subscribe_required'),
             reply_markup=get_subscribe_menu(lang)
         )
         return
 
-    # Если подписан - показываем главное меню
     await message.answer(
         get_text(lang, 'start'),
         reply_markup=get_main_menu(lang)
     )
 
 
-# ✅ ИСПРАВЛЕННЫЙ обработчик кнопки "Проверить подписку"
 @router.message(F.text.in_([get_text('ru', 'btn_check_subscription'), get_text('en', 'btn_check_subscription')]))
 async def check_subscription_button(message: types.Message, bot):
     user_id = message.from_user.id
     lang = await db.get_user_language(user_id)
 
-    # Отправляем сообщение "проверяю"
     checking_msg = await message.answer(get_text(lang, 'subscribe_checking'))
-
-    # Проверяем подписку
     is_subscribed = await check_subscription(bot, user_id)
-
-    # Удаляем сообщение о проверке
     await checking_msg.delete()
 
     if is_subscribed:
-        # ✅ Если подписался - показываем ГЛАВНОЕ МЕНЮ и приветствие
         await message.answer(
             get_text(lang, 'subscribe_success'),
-            reply_markup=get_main_menu(lang)  # ← здесь главное меню
+            reply_markup=get_main_menu(lang)
         )
     else:
-        # Если нет - оставляем кнопку проверки
         await message.answer(
             get_text(lang, 'subscribe_failed'),
             reply_markup=get_subscribe_menu(lang)

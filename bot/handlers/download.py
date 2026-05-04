@@ -36,7 +36,7 @@ async def show_progress(status_msg: types.Message, platform: str):
 @router.message(F.text.in_([get_text('ru', 'btn_download'), get_text('en', 'btn_download')]))
 async def download_menu(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    lang = db.get_user_language(user_id)
+    lang = await db.get_user_language(user_id)
     await state.set_state(DownloadStates.waiting_url)
     await message.answer(get_text(lang, 'send_link'))
 
@@ -44,7 +44,7 @@ async def download_menu(message: types.Message, state: FSMContext):
 @router.message(DownloadStates.waiting_url)
 async def download_video(message: types.Message, state: FSMContext, bot):
     user_id = message.from_user.id
-    lang = db.get_user_language(user_id)
+    lang = await db.get_user_language(user_id)
     url = message.text.strip()
 
     platform = downloader.detect_platform(url)
@@ -86,7 +86,7 @@ async def download_video(message: types.Message, state: FSMContext, bot):
 
         await status_msg.delete()
 
-        db.add_video(user_id, url, filepath, int(file_size_mb * 1024 * 1024))
+        await db.add_video(user_id, url, filepath, int(file_size_mb * 1024 * 1024))
         schedule_delete_after_delay(filepath, seconds=30)
 
     except asyncio.CancelledError:

@@ -7,7 +7,6 @@ from locales import get_text
 from utils.audio_converter import audio_converter
 from video_cleaner.cleaner import schedule_delete_after_delay
 
-# ✅ СОЗДАЕМ ЭКЗЕМПЛЯР РОУТЕРА (это обязательно!)
 router = Router()
 
 
@@ -15,14 +14,14 @@ router = Router()
 @router.message(F.text.in_([get_text('ru', 'btn_convert_audio'), get_text('en', 'btn_convert_audio')]))
 async def ask_audio(message: types.Message):
     user_id = message.from_user.id
-    lang = db.get_user_language(user_id)
+    lang = await db.get_user_language(user_id)
     await message.answer(get_text(lang, 'send_audio'))
 
 
 @router.message(F.audio)
 async def handle_audio(message: types.Message, bot):
     user_id = message.from_user.id
-    lang = db.get_user_language(user_id)
+    lang = await db.get_user_language(user_id)
     audio = message.audio
 
     filename = audio.file_name or "audio.mp3"
@@ -62,7 +61,7 @@ async def handle_audio(message: types.Message, bot):
 
         await status_msg.delete()
 
-        db.add_video(user_id, audio.file_id, output_path, os.path.getsize(output_path))
+        await db.add_video(user_id, audio.file_id, output_path, os.path.getsize(output_path))
         schedule_delete_after_delay(input_path, seconds=30)
         schedule_delete_after_delay(output_path, seconds=30)
 
@@ -79,17 +78,15 @@ async def handle_audio(message: types.Message, bot):
 # ===== КОНВЕРТАЦИЯ ГОЛОСОВОГО → АУДИО =====
 @router.message(F.text.in_([get_text('ru', 'btn_voice_to_audio'), get_text('en', 'btn_voice_to_audio')]))
 async def ask_voice_for_convert(message: types.Message):
-    """Запрашивает голосовое сообщение для конвертации в MP3"""
     user_id = message.from_user.id
-    lang = db.get_user_language(user_id)
+    lang = await db.get_user_language(user_id)
     await message.answer(get_text(lang, 'send_voice_for_convert'))
 
 
 @router.message(F.voice)
 async def handle_voice_to_audio(message: types.Message, bot):
-    """Конвертирует голосовое сообщение в MP3"""
     user_id = message.from_user.id
-    lang = db.get_user_language(user_id)
+    lang = await db.get_user_language(user_id)
     voice = message.voice
 
     if voice.file_size > 50 * 1024 * 1024:
@@ -123,7 +120,7 @@ async def handle_voice_to_audio(message: types.Message, bot):
 
         await status_msg.delete()
 
-        db.add_video(user_id, voice.file_id, output_path, os.path.getsize(output_path))
+        await db.add_video(user_id, voice.file_id, output_path, os.path.getsize(output_path))
         schedule_delete_after_delay(input_path, seconds=30)
         schedule_delete_after_delay(output_path, seconds=30)
 
