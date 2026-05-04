@@ -18,6 +18,7 @@ class AdminStates(StatesGroup):
     waiting_broadcast_text = State()
     waiting_broadcast_photo = State()
     waiting_ban_id = State()
+    waiting_ban_reason = State()          # новое состояние для причины бана
     waiting_unban_id = State()
     waiting_ban_all_confirm = State()
     waiting_user_message = State()
@@ -174,22 +175,98 @@ async def admin_user_action(callback: types.CallbackQuery):
     await callback.answer()
 
 
+# ---------- БАН ПОЛЬЗОВАТЕЛЯ (из списка) с причиной ----------
 @router.callback_query(F.data.startswith("admin_user_ban_"))
-async def admin_user_ban(callback: types.CallbackQuery):
+async def admin_user_ban_start(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     if user_id not in ADMIN_IDS or user_id not in admin_sessions:
         await callback.answer("⛔ Доступ запрещен")
         return
     target_user_id = int(callback.data.split("_")[-1])
-    await db.ban_user(target_user_id)
-    await callback.answer("✅ Пользователь забанен")
-    target_user = await db.get_user(target_user_id)
-    lang = await db.get_user_language(user_id)
-    await callback.message.edit_reply_markup(
-        reply_markup=get_user_actions_menu(target_user_id, target_user.get('is_banned', False), lang)
+    await state.update_data(target_user_id=target_user_id)
+    await state.set_state(AdminStates.waiting_ban_reason)
+    await callback.message.answer(
+        "📝 Введите причину бана для пользователя.\n"
+        "Сообщение будет отправлено пользователю.\n"
+        "Для отмены напишите /cancel"
     )
+    await callback.answer()
 
 
+# ---------- БАН ПО ID (через меню "Забанить пользователя") ----------
+@router.callback_query(F.data == "admin_ban")
+async def admin_ban(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if user_id not in ADMIN_IDS or user_id not in admin_sessions:
+        await callback.answer("⛔ Доступ запрещен")
+        return
+    await state.set_state(AdminStates.waiting_ban_id)
+    await callback.message.answer("🆔 Введите ID пользователя для бана:")
+    await callback.answer()
+
+
+@router.message(AdminStates.waiting_ban_id)
+async def process_ban_id(message: types.Message, state: FSMContext):
+    admin_id = message.from_user.id
+    if admin_id not in ADMIN_IDS or admin_id not in admin_sessions:
+        return
+    try:
+        target_user_id = int(message.text)
+        await state.update_data(target_user_id=target_user_id)
+        await state.set_state(AdminStates.waiting_ban_reason)
+        await message.answer(
+            "📝 Введите причину бана для пользователя.\n"
+            "Сообщение будет отправлено пользователю.\n"
+            "Для отмены напишите /cancel"
+        )
+    except:
+        await message.answer("❌ Неверный ID. Попробуйте ещё раз или /cancel")
+        await state.clear()
+
+
+# ---------- ОБЩИЙ ОБРАБОТЧИК ПРИЧИНЫ БАНА ----------
+@router.message(AdminStates.waiting_ban_reason)
+async def process_ban_reason(message: types.Message, state: FSMContext):
+    admin_id = message.from_user.id
+    if admin_id not in ADMIN_IDS or admin_id not in admin_sessions:
+        return
+    reason = message.text.strip()
+    if not reason or reason == "/cancel":
+        await state.clear()
+        await message.answer("❌ Бан отменён.")
+        return
+
+    data = await state.get_data()
+    target_user_id = data.get('target_user_id')
+    if not target_user_id:
+        await state.clear()
+        await message.answer("❌ Ошибка: пользователь не найден.")
+        return
+
+    # Выполняем бан
+    await db.ban_user(target_user_id)
+
+    # Отправляем уведомление пользователю с причиной
+    try:
+        await message.bot.send_message(
+            target_user_id,
+            f"⛔ Вы были забанены администратором.\n"
+            f"Причина: {reason}\n\n"
+            f"Если считаете это ошибкой, свяжитесь с поддержкой."
+        )
+    except:
+        pass  # пользователь мог не начать диалог с ботом
+
+    await message.answer(f"✅ Пользователь {target_user_id} забанен.\nПричина: {reason}")
+
+    # Обновляем клавиатуру в админ-панели (если она была открыта)
+    # Для этого попробуем отредактировать последнее сообщение админа (не критично, можно просто очистить состояние)
+    await state.clear()
+
+    # Дополнительно можно обновить меню списка пользователей, но это не обязательно
+
+
+# ---------- РАЗБАН ПОЛЬЗОВАТЕЛЯ (из списка) ----------
 @router.callback_query(F.data.startswith("admin_user_unban_"))
 async def admin_user_unban(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -206,6 +283,7 @@ async def admin_user_unban(callback: types.CallbackQuery):
     )
 
 
+# ---------- НАПИСАТЬ ПОЛЬЗОВАТЕЛЮ ----------
 @router.callback_query(F.data.startswith("admin_user_msg_"))
 async def admin_user_msg(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -247,6 +325,7 @@ async def send_user_message(message: types.Message, state: FSMContext):
     await state.clear()
 
 
+# ---------- НАЗАД К СПИСКУ ПОЛЬЗОВАТЕЛЕЙ ----------
 @router.callback_query(F.data == "admin_back_to_list")
 async def admin_back_to_list(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -263,6 +342,7 @@ async def admin_back_to_list(callback: types.CallbackQuery):
     await callback.answer()
 
 
+# ---------- ОЧИСТКА ФАЙЛОВ ----------
 @router.callback_query(F.data == "admin_clean_files")
 async def admin_clean_files(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -274,6 +354,7 @@ async def admin_clean_files(callback: types.CallbackQuery):
     await callback.answer()
 
 
+# ---------- РАССЫЛКА ----------
 @router.callback_query(F.data == "admin_broadcast")
 async def admin_broadcast(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -297,7 +378,7 @@ async def process_broadcast(message: types.Message, state: FSMContext):
     users = await db.get_all_users()
     sent = 0
     failed = 0
-    status_msg = await message.answer("📢 Начинаю рассылку...")
+    status_msg = await message.answer("🔄 Начинаю рассылку...")
     for user in users:
         if user.get("is_banned"):
             continue
@@ -306,12 +387,12 @@ async def process_broadcast(message: types.Message, state: FSMContext):
                 await message.bot.send_photo(
                     chat_id=user["user_id"],
                     photo=message.photo[-1].file_id,
-                    caption=message.caption or "📢 Рассылка"
+                    caption=message.caption or ""
                 )
             elif message.text:
                 await message.bot.send_message(
                     chat_id=user["user_id"],
-                    text=f"📢 {message.text}"
+                    text=message.text
                 )
             sent += 1
         except:
@@ -326,12 +407,14 @@ async def process_broadcast(message: types.Message, state: FSMContext):
     await state.clear()
 
 
+# ---------- ОТМЕНА ----------
 @router.message(Command("cancel"))
 async def cancel_handler(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("✅ Действие отменено")
 
 
+# ---------- БАН ВСЕХ ПОЛЬЗОВАТЕЛЕЙ ----------
 @router.callback_query(F.data == "admin_ban_all")
 async def admin_ban_all(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -361,31 +444,7 @@ async def process_ban_all(message: types.Message, state: FSMContext):
     await state.clear()
 
 
-@router.callback_query(F.data == "admin_ban")
-async def admin_ban(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    if user_id not in ADMIN_IDS or user_id not in admin_sessions:
-        await callback.answer("⛔ Доступ запрещен")
-        return
-    await state.set_state(AdminStates.waiting_ban_id)
-    await callback.message.answer("🆔 Введите ID пользователя для бана:")
-    await callback.answer()
-
-
-@router.message(AdminStates.waiting_ban_id)
-async def process_ban(message: types.Message, state: FSMContext):
-    admin_id = message.from_user.id
-    if admin_id not in ADMIN_IDS or admin_id not in admin_sessions:
-        return
-    try:
-        user_id_to_ban = int(message.text)
-        await db.ban_user(user_id_to_ban)
-        await message.answer(f"✅ Пользователь {user_id_to_ban} забанен")
-    except:
-        await message.answer("❌ Неверный ID")
-    await state.clear()
-
-
+# ---------- РАЗБАН ПО ID (через меню "Разбанить пользователя") ----------
 @router.callback_query(F.data == "admin_unban")
 async def admin_unban(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
