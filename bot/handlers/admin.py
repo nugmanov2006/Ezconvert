@@ -18,7 +18,7 @@ class AdminStates(StatesGroup):
     waiting_broadcast_text = State()
     waiting_broadcast_photo = State()
     waiting_ban_id = State()
-    waiting_ban_reason = State()          # новое состояние для причины бана
+    waiting_ban_reason = State()
     waiting_unban_id = State()
     waiting_ban_all_confirm = State()
     waiting_user_message = State()
@@ -148,6 +148,7 @@ async def admin_users_page(callback: types.CallbackQuery):
 
 @router.callback_query(F.data.startswith("admin_user_"))
 async def admin_user_action(callback: types.CallbackQuery):
+    print(f"DEBUG: admin_user_action вызван с data={callback.data}")
     user_id = callback.from_user.id
     if user_id not in ADMIN_IDS or user_id not in admin_sessions:
         await callback.answer("⛔ Доступ запрещен")
@@ -178,6 +179,7 @@ async def admin_user_action(callback: types.CallbackQuery):
 # ---------- БАН ПОЛЬЗОВАТЕЛЯ (из списка) с причиной ----------
 @router.callback_query(F.data.startswith("admin_user_ban_"))
 async def admin_user_ban_start(callback: types.CallbackQuery, state: FSMContext):
+    print(f"DEBUG: admin_user_ban_start вызван с data={callback.data}")
     user_id = callback.from_user.id
     if user_id not in ADMIN_IDS or user_id not in admin_sessions:
         await callback.answer("⛔ Доступ запрещен")
@@ -196,6 +198,7 @@ async def admin_user_ban_start(callback: types.CallbackQuery, state: FSMContext)
 # ---------- БАН ПО ID (через меню "Забанить пользователя") ----------
 @router.callback_query(F.data == "admin_ban")
 async def admin_ban(callback: types.CallbackQuery, state: FSMContext):
+    print("DEBUG: admin_ban вызван")
     user_id = callback.from_user.id
     if user_id not in ADMIN_IDS or user_id not in admin_sessions:
         await callback.answer("⛔ Доступ запрещен")
@@ -243,10 +246,8 @@ async def process_ban_reason(message: types.Message, state: FSMContext):
         await message.answer("❌ Ошибка: пользователь не найден.")
         return
 
-    # Выполняем бан
     await db.ban_user(target_user_id)
 
-    # Отправляем уведомление пользователю с причиной
     try:
         await message.bot.send_message(
             target_user_id,
@@ -255,20 +256,16 @@ async def process_ban_reason(message: types.Message, state: FSMContext):
             f"Если считаете это ошибкой, свяжитесь с поддержкой."
         )
     except:
-        pass  # пользователь мог не начать диалог с ботом
+        pass
 
     await message.answer(f"✅ Пользователь {target_user_id} забанен.\nПричина: {reason}")
-
-    # Обновляем клавиатуру в админ-панели (если она была открыта)
-    # Для этого попробуем отредактировать последнее сообщение админа (не критично, можно просто очистить состояние)
     await state.clear()
-
-    # Дополнительно можно обновить меню списка пользователей, но это не обязательно
 
 
 # ---------- РАЗБАН ПОЛЬЗОВАТЕЛЯ (из списка) ----------
 @router.callback_query(F.data.startswith("admin_user_unban_"))
 async def admin_user_unban(callback: types.CallbackQuery):
+    print(f"DEBUG: admin_user_unban вызван с data={callback.data}")
     user_id = callback.from_user.id
     if user_id not in ADMIN_IDS or user_id not in admin_sessions:
         await callback.answer("⛔ Доступ запрещен")
@@ -286,6 +283,7 @@ async def admin_user_unban(callback: types.CallbackQuery):
 # ---------- НАПИСАТЬ ПОЛЬЗОВАТЕЛЮ ----------
 @router.callback_query(F.data.startswith("admin_user_msg_"))
 async def admin_user_msg(callback: types.CallbackQuery, state: FSMContext):
+    print(f"DEBUG: admin_user_msg вызван с data={callback.data}")
     user_id = callback.from_user.id
     if user_id not in ADMIN_IDS or user_id not in admin_sessions:
         await callback.answer("⛔ Доступ запрещен")
